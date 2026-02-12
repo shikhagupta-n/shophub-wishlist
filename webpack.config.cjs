@@ -70,6 +70,7 @@ module.exports = (_env, argv) => {
         filename: 'remoteEntry.js',
         exposes: {
           './Wishlist': './src/pages/Wishlist.jsx',
+          './ErrorLab': './src/pages/ErrorLab.jsx',
         },
         shared: {
           react: { singleton: true, eager: true, requiredVersion: deps.react },
