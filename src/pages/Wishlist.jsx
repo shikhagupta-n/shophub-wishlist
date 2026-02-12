@@ -14,6 +14,54 @@ import {
 import { Delete as DeleteIcon, ShoppingCart as CartIcon } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 
+// Logical errors (wishlist page).
+// Reason: when fail mode is ON, stacktraces should point to this remote/page file.
+const LOGICAL_ERRORS = [
+  { code: 'LOGIC_001', message: 'Incorrect conditional flow: action allowed when preconditions are not met.' },
+  { code: 'LOGIC_002', message: 'Wrong state transition: attempted to update UI state from a stale snapshot.' },
+  { code: 'LOGIC_003', message: 'Broken UI rendering logic: computed view model is inconsistent with inputs.' },
+  { code: 'LOGIC_004', message: 'Invalid business rule: checkout/wishlist operation violates domain constraints.' },
+  { code: 'LOGIC_005', message: 'Routing logic error: navigation target resolved to an unexpected route.' },
+];
+let logicalErrorCounter = 0;
+
+function isFailModeOn() {
+  try {
+    return JSON.parse(localStorage.getItem('ecommerce_fail_mode') || 'false') === true;
+  } catch {
+    return false;
+  }
+}
+
+function maybeInjectLogicalError(event, routeRemoteHint) {
+  if (!isFailModeOn()) return false;
+  const target = event?.target;
+  if (!(target instanceof Element)) return false;
+  if (target.closest('[data-skip-logical-error="true"]')) return false;
+  const buttonEl = target.closest('button, [role="button"], a, input[type="button"], input[type="submit"]');
+  if (!buttonEl) return false;
+
+  // Block normal flow so only logical errors are produced while fail mode is enabled.
+  event.preventDefault();
+  event.stopPropagation();
+
+  const chosen = LOGICAL_ERRORS[logicalErrorCounter % LOGICAL_ERRORS.length];
+  logicalErrorCounter += 1;
+  const buttonText = (buttonEl.getAttribute('aria-label') || buttonEl.textContent || '').trim().slice(0, 80) || 'unknown';
+
+  const err = new Error(`[${routeRemoteHint}] ${chosen.code}: ${chosen.message}`);
+  err.name = 'ShophubLogicalError';
+
+  if (window.zipy) {
+    window.zipy.logMessage('Logical error injected (fail mode)', { code: chosen.code, routeRemoteHint, buttonText });
+    window.zipy.logException(err);
+  }
+
+  // eslint-disable-next-line no-console
+  console.error(`[${routeRemoteHint}][LogicalError]`, { ...chosen, buttonText });
+  return true;
+}
+
 /**
  * Wishlist page remote.
  *
@@ -47,7 +95,13 @@ export default function Wishlist({
   };
 
   return (
-    <Box sx={{ minHeight: '100vh', background: '#fafafa', py: 5 }}>
+    <Box
+      onClickCapture={(e) => {
+        // Reason: generate logical errors from this page when fail mode is enabled.
+        maybeInjectLogicalError(e, 'wishlist');
+      }}
+      sx={{ minHeight: '100vh', background: '#fafafa', py: 5 }}
+    >
       <Container maxWidth="lg">
         <Paper
           elevation={0}

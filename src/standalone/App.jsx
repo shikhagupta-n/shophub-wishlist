@@ -4,7 +4,6 @@ import { Box, CssBaseline } from '@mui/material';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 
 import Wishlist from '../pages/Wishlist.jsx';
-import ErrorLab from '../pages/ErrorLab.jsx';
 
 // Standalone theme for running this remote by itself.
 // Reason: the shell owns the real theme; this avoids a blank page in isolated runs.
@@ -18,7 +17,6 @@ export default function StandaloneApp() {
         <Router>
           <Routes>
             <Route path="/wishlist" element={<Wishlist />} />
-            <Route path="/debug/errors" element={<ErrorLab />} />
             <Route path="/" element={<Navigate to="/wishlist" replace />} />
           </Routes>
         </Router>

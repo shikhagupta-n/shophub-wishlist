@@ -70,7 +70,6 @@ module.exports = (_env, argv) => {
         filename: 'remoteEntry.js',
         exposes: {
           './Wishlist': './src/pages/Wishlist.jsx',
-          './ErrorLab': './src/pages/ErrorLab.jsx',
         },
         shared: {
           react: { singleton: true, eager: true, requiredVersion: deps.react },
@@ -89,6 +88,9 @@ module.exports = (_env, argv) => {
 
       new HtmlWebpackPlugin({
         template: path.resolve(__dirname, 'index.html'),
+        // IMPORTANT: ensure injected asset URLs are absolute (e.g. `/assets/main.js`),
+        // otherwise deep routes would try to load `/<route>/assets/...` and 404.
+        publicPath: '/',
       }),
 
       new CopyWebpackPlugin({
