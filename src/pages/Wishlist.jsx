@@ -93,10 +93,16 @@ export default function Wishlist({
     }
   });
 
+  // Defensively ensure items is always a valid array before use,
+  // guarding against non-array values from the shell or stale props.
+  const safeItems = useMemo(() => (Array.isArray(items) ? items : []), [items]);
+
   const effectiveItems = useMemo(() => {
-    if (!simulateFailure) return items;
-    return { length: 1 };
-  }, [items, simulateFailure]);
+    if (!simulateFailure) return safeItems;
+    // Simulate failure returns an empty array instead of a non-iterable object.
+    // The original `{ length: 1 }` plain object lacked `.map()`, causing a TypeError crash.
+    return [];
+  }, [safeItems, simulateFailure]);
 
   const isEmpty = useMemo(() => !effectiveItems || effectiveItems.length === 0, [effectiveItems]);
 
@@ -236,7 +242,9 @@ export default function Wishlist({
           </Paper>
         ) : (
           <Grid container spacing={3}>
-            {effectiveItems.map((product) => (
+            {/* Defensive Array.isArray check prevents TypeError if effectiveItems
+                is ever a non-array value (e.g., from upstream data issues). */}
+            {(Array.isArray(effectiveItems) ? effectiveItems : []).map((product) => (
               <Grid key={product.id} item xs={12} md={6}>
                 <Card
                   sx={{
