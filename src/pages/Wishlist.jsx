@@ -26,6 +26,7 @@ const LOGICAL_ERRORS = [
   { code: 'LOGIC_005', message: 'Routing logic error: navigation target resolved to an unexpected route.' },
 ];
 let logicalErrorCounter = 0;
+const permissionDiagnosticsSentFor = new Set();
 
 function isFailModeOn() {
   try {
@@ -59,9 +60,55 @@ function maybeInjectLogicalError(event, routeRemoteHint) {
     window.zipy.logException(err);
   }
 
-  // eslint-disable-next-line no-console
   console.error(`[${routeRemoteHint}][LogicalError]`, { ...chosen, buttonText });
   return true;
+}
+
+function normalizePermissions(permissions) {
+  if (!permissions) return [];
+  if (Array.isArray(permissions)) return permissions.filter((p) => typeof p === 'string');
+  if (typeof permissions === 'string') {
+    // Reason: some shells serialize permissions as a comma-delimited string.
+    return permissions
+      .split(',')
+      .map((p) => p.trim())
+      .filter(Boolean);
+  }
+  // Support Set-like permissions without relying on cross-realm `instanceof Set`.
+  if (permissions && typeof permissions === 'object' && typeof permissions.has === 'function') {
+    try {
+      return Array.from(permissions).filter((p) => typeof p === 'string');
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function canUserEdit(currentUser) {
+  const permissionsRaw = currentUser?.permissions;
+  const permissions = normalizePermissions(permissionsRaw);
+
+  if (currentUser && (permissionsRaw == null || (permissions.length === 0 && permissionsRaw != null))) {
+    // Reason: permissions shape regressions should be observable, but must not crash wishlist rendering.
+    const userKey = String(currentUser?.id ?? currentUser?.email ?? 'unknown-user');
+    if (!permissionDiagnosticsSentFor.has(userKey)) {
+      permissionDiagnosticsSentFor.add(userKey);
+      const zipy = typeof window !== 'undefined' ? window.zipy : null;
+      if (zipy) {
+        zipy.logMessage('[wishlist] missing/invalid permissions; treating as no-access', {
+          userKey,
+          permissionsType: typeof permissionsRaw,
+        });
+      }
+      console.warn('[wishlist] missing/invalid permissions; treating as no-access', {
+        userKey,
+        permissionsRaw,
+      });
+    }
+  }
+
+  return permissions.includes('EDIT');
 }
 
 function UserCard({ user }) {
@@ -102,22 +149,8 @@ export default function Wishlist({
 
   const isAdminHost = typeof window !== 'undefined' && window.__SHOPHUB_APP__ === 'admin';
 
-  let canEdit = false;
-  try {
-    canEdit = currentUser.permissions.includes('EDIT');
-  } catch (e) {
-    const zipy = typeof window !== 'undefined' ? window.zipy : null;
-    if (zipy) {
-      zipy.logMessage('[wishlist] permission check failed', {
-        currentUserType: typeof currentUser,
-        hasPermissions: Boolean(currentUser && 'permissions' in currentUser),
-      });
-      zipy.logException(e);
-    }
-    // eslint-disable-next-line no-console
-    console.error('[wishlist] permission check failed', { currentUser });
-    throw e;
-  }
+  // Reason: this page must render even when the shell hasn't loaded auth context yet (e.g. standalone mode).
+  const canEdit = useMemo(() => canUserEdit(currentUser), [currentUser]);
 
   const FAIL_KEY = 'shophub:wishlist:simulateFailure:v1';
   const [simulateFailure, setSimulateFailure] = useState(() => {
@@ -143,7 +176,6 @@ export default function Wishlist({
       showSuccess('Moved to cart');
     } catch (e) {
       // Reason: shell snackbar handles UX; fallback to console in standalone.
-      // eslint-disable-next-line no-console
       console.error('Move to cart failed:', e);
       showError('Failed to move item to cart');
     }
