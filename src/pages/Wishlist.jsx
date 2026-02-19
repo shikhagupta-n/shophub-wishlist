@@ -1,12 +1,14 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Box,
   Button,
   Card,
   CardContent,
   CardMedia,
+  Checkbox,
   Container,
   Divider,
+  FormControlLabel,
   Grid,
   Paper,
   Typography,
@@ -79,7 +81,24 @@ export default function Wishlist({
 }) {
   const navigate = useNavigate();
 
-  const isEmpty = useMemo(() => !items || items.length === 0, [items]);
+  const isAdminHost = typeof window !== 'undefined' && window.__SHOPHUB_APP__ === 'admin';
+
+  const FAIL_KEY = 'shophub:wishlist:simulateFailure:v1';
+  const [simulateFailure, setSimulateFailure] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return JSON.parse(localStorage.getItem(FAIL_KEY) || 'false') === true;
+    } catch {
+      return false;
+    }
+  });
+
+  const effectiveItems = useMemo(() => {
+    if (!simulateFailure) return items;
+    return { length: 1 };
+  }, [items, simulateFailure]);
+
+  const isEmpty = useMemo(() => !effectiveItems || effectiveItems.length === 0, [effectiveItems]);
 
   const handleMoveToCart = async (product) => {
     try {
@@ -103,6 +122,43 @@ export default function Wishlist({
       sx={{ minHeight: '100vh', background: '#fafafa', py: 5 }}
     >
       <Container maxWidth="lg">
+        {isAdminHost ? (
+          <Paper
+            elevation={0}
+            sx={{
+              p: { xs: 2, md: 2 },
+              borderRadius: 3,
+              border: '1px solid rgba(0, 0, 0, 0.06)',
+              background: 'rgba(255, 255, 255, 0.9)',
+              backdropFilter: 'blur(20px)',
+              mb: 2,
+            }}
+            data-skip-logical-error="true"
+          >
+            <Typography sx={{ fontWeight: 900, mb: 0.5 }}>Diagnostics</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              Toggle to intentionally break Wishlist.
+            </Typography>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={simulateFailure}
+                  onChange={(e) => {
+                    const next = e.target.checked;
+                    setSimulateFailure(next);
+                    try {
+                      localStorage.setItem(FAIL_KEY, JSON.stringify(next));
+                    } catch {
+                      // Ignore storage failures in dev.
+                    }
+                  }}
+                />
+              }
+              label="Simulate failure"
+            />
+          </Paper>
+        ) : null}
+
         <Paper
           elevation={0}
           sx={{
@@ -180,7 +236,7 @@ export default function Wishlist({
           </Paper>
         ) : (
           <Grid container spacing={3}>
-            {items.map((product) => (
+            {effectiveItems.map((product) => (
               <Grid key={product.id} item xs={12} md={6}>
                 <Card
                   sx={{
