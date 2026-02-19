@@ -64,6 +64,24 @@ function maybeInjectLogicalError(event, routeRemoteHint) {
   return true;
 }
 
+function UserCard({ user }) {
+  return (
+    <Box>
+      <Typography variant="body2" sx={{ fontWeight: 700 }}>
+        {user?.name ?? 'Unknown'}
+      </Typography>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+        {user?.email ?? 'unknown@example.com'}
+      </Typography>
+      {user?.role ? (
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+          Role: {user.role}
+        </Typography>
+      ) : null}
+    </Box>
+  );
+}
+
 /**
  * Wishlist page remote.
  *
@@ -78,10 +96,28 @@ export default function Wishlist({
   addToCart = async () => true,
   showSuccess = () => {},
   showError = () => {},
+  currentUser = null,
 }) {
   const navigate = useNavigate();
 
   const isAdminHost = typeof window !== 'undefined' && window.__SHOPHUB_APP__ === 'admin';
+
+  let canEdit = false;
+  try {
+    canEdit = currentUser.permissions.includes('EDIT');
+  } catch (e) {
+    const zipy = typeof window !== 'undefined' ? window.zipy : null;
+    if (zipy) {
+      zipy.logMessage('[wishlist] permission check failed', {
+        currentUserType: typeof currentUser,
+        hasPermissions: Boolean(currentUser && 'permissions' in currentUser),
+      });
+      zipy.logException(e);
+    }
+    // eslint-disable-next-line no-console
+    console.error('[wishlist] permission check failed', { currentUser });
+    throw e;
+  }
 
   const FAIL_KEY = 'shophub:wishlist:simulateFailure:v1';
   const [simulateFailure, setSimulateFailure] = useState(() => {
@@ -259,6 +295,14 @@ export default function Wishlist({
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                       {product.category}
                     </Typography>
+                    {isAdminHost && canEdit && product?.addedBy ? (
+                      <Box sx={{ mb: 2 }}>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontWeight: 800 }}>
+                          Added by
+                        </Typography>
+                        <UserCard user={product.addedBy} />
+                      </Box>
+                    ) : null}
                     <Divider sx={{ my: 2 }} />
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
                       <Typography variant="h5" sx={{ fontWeight: 800 }}>
