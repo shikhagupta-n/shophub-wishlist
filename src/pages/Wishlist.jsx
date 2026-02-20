@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Box,
   Button,
@@ -101,27 +101,20 @@ export default function Wishlist({
   const navigate = useNavigate();
 
   const isAdminHost = typeof window !== 'undefined' && window.__SHOPHUB_APP__ === 'admin';
+  const permissions = currentUser?.permissions;
 
-  let canEdit = false;
-  try {
-    canEdit = currentUser.permissions.includes('EDIT');
-  } catch (e) {
-    const zipy = typeof window !== 'undefined' ? window.zipy : null;
-    if (zipy) {
-      zipy.logMessage('[wishlist] permission check failed', {
-        currentUserType: typeof currentUser,
-        hasPermissions: Boolean(currentUser && 'permissions' in currentUser),
-      });
-      zipy.logException(e);
-    }
-    // eslint-disable-next-line no-console
-    console.error('[wishlist] permission check failed', { currentUser });
-    throw e;
-  }
+  // Reason: this page is mounted in non-admin user flows too; never assume the admin-only
+  // `currentUser.permissions` contract exists unless we're explicitly running in the admin host.
+  const canEdit = useMemo(() => {
+    if (!isAdminHost) return false;
+    if (!currentUser || !Array.isArray(permissions)) return false;
+    return permissions.includes('EDIT');
+  }, [currentUser, isAdminHost, permissions]);
 
   const FAIL_KEY = 'shophub:wishlist:simulateFailure:v1';
   const [simulateFailure, setSimulateFailure] = useState(() => {
-    if (typeof window === 'undefined') return false;
+    // Reason: diagnostics are admin-only; ignore any persisted localStorage value for normal users.
+    if (typeof window === 'undefined' || !isAdminHost) return false;
     try {
       return JSON.parse(localStorage.getItem(FAIL_KEY) || 'false') === true;
     } catch {
@@ -129,10 +122,33 @@ export default function Wishlist({
     }
   });
 
+  const hasLoggedBadPermissionsRef = useRef(false);
+  useEffect(() => {
+    // Reason: log once (admin-only) to aid production debugging without crashing the page.
+    if (!isAdminHost) return;
+    if (hasLoggedBadPermissionsRef.current) return;
+    if (!currentUser) return;
+
+    if (!Array.isArray(permissions)) {
+      hasLoggedBadPermissionsRef.current = true;
+      const zipy = typeof window !== 'undefined' ? window.zipy : null;
+      if (zipy) {
+        zipy.logMessage('[wishlist] unexpected permissions shape (admin host)', {
+          permissionsType: typeof permissions,
+          hasPermissionsKey: Boolean('permissions' in currentUser),
+        });
+      }
+      // eslint-disable-next-line no-console
+      console.warn('[wishlist] unexpected permissions shape (admin host)', { currentUser });
+    }
+  }, [currentUser, isAdminHost, permissions]);
+
   const effectiveItems = useMemo(() => {
     if (!simulateFailure) return items;
+    // Reason: only admins can intentionally break the remote; normal users must never observe it.
+    if (!isAdminHost) return items;
     return { length: 1 };
-  }, [items, simulateFailure]);
+  }, [isAdminHost, items, simulateFailure]);
 
   const isEmpty = useMemo(() => !effectiveItems || effectiveItems.length === 0, [effectiveItems]);
 
