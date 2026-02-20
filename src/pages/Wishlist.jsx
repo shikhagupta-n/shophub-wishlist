@@ -27,6 +27,14 @@ const LOGICAL_ERRORS = [
 ];
 let logicalErrorCounter = 0;
 
+function hasPermission(user, permission) {
+  // Reason: `currentUser` (or its `permissions`) can be temporarily unavailable during boot,
+  // and item shapes differ between admin and storefront hosts. This prevents `TypeError`s
+  // while keeping permission checks explicit and centralized.
+  const permissions = user?.permissions;
+  return Array.isArray(permissions) && permissions.includes(permission);
+}
+
 function isFailModeOn() {
   try {
     return JSON.parse(localStorage.getItem('ecommerce_fail_mode') || 'false') === true;
@@ -82,18 +90,18 @@ function UserCard({ user }) {
 }
 
 function DeleteButton({ isAdminHost, productId, currentUser, onDelete, showError }) {
-  let canDelete = false;
-  try {
-    canDelete = currentUser.permissions.includes('WISHLIST_DELETE');
-  } catch {
-    canDelete = false;
-  }
+  const canDelete = hasPermission(currentUser, 'WISHLIST_DELETE');
 
   useEffect(() => {
-    if (isAdminHost) return;
+    if (!isAdminHost) return;
     if (canDelete) return;
+    // Reason: this action is admin-only; missing permission is a configuration/role issue.
     showError('Permission denied');
-  });
+    window.zipy?.logMessage?.('Wishlist admin action blocked (missing permission)', {
+      action: 'delete',
+      requiredPermission: 'WISHLIST_DELETE',
+    });
+  }, [isAdminHost, canDelete, showError]);
 
   if (!isAdminHost) return null;
   if (!canDelete) return null;
@@ -111,24 +119,55 @@ function DeleteButton({ isAdminHost, productId, currentUser, onDelete, showError
   );
 }
 
-function RemoveButton({ product, onRemove }) {
-  try {
-  const canRemove = product.addedBy.permissions.includes('WISHLIST_REMOVE');
+function RemoveButton({ isAdminHost, product, currentUser, onRemove, showError }) {
+  const productId = product?.id;
+  const canRemove =
+    Boolean(productId) && (!isAdminHost || hasPermission(currentUser, 'WISHLIST_REMOVE'));
+
+  useEffect(() => {
+    if (!isAdminHost) return;
+    if (!productId) return;
+    if (canRemove) return;
+    // Reason: admin host should surface permission/config issues loudly for faster debugging.
+    showError('Permission denied');
+    window.zipy?.logMessage?.('Wishlist admin action blocked (missing permission)', {
+      action: 'remove',
+      requiredPermission: 'WISHLIST_REMOVE',
+    });
+  }, [isAdminHost, productId, canRemove, showError]);
+
+  if (!productId) return null;
+
+  // Storefront users should always be able to remove items from their own wishlist.
+  // Reason: permission checks here are for the admin host only (diagnostics / privileged actions),
+  // and the storefront item model does not include `addedBy` or any permissions metadata.
+  if (!isAdminHost) {
+    return (
+      <Button
+        variant="outlined"
+        startIcon={<DeleteIcon />}
+        color="error"
+        onClick={() => onRemove(productId)}
+        sx={{ textTransform: 'none', fontWeight: 700, borderRadius: 2 }}
+      >
+        Remove
+      </Button>
+    );
+  }
+
   if (!canRemove) return null;
+
   return (
     <Button
       variant="outlined"
       startIcon={<DeleteIcon />}
       color="error"
-      onClick={() => onRemove(product.id)}
+      onClick={() => onRemove(productId)}
       sx={{ textTransform: 'none', fontWeight: 700, borderRadius: 2 }}
     >
       Remove
     </Button>
   );
-  } catch(e) {
-    window.zipy.logException(e);
-  }
 }
 
 /**
@@ -339,7 +378,13 @@ export default function Wishlist({
                         ${product.price}
                       </Typography>
                       <Box sx={{ display: 'flex', gap: 1 }}>
-                        <RemoveButton product={product} onRemove={removeFromWishlist} />
+                        <RemoveButton
+                          isAdminHost={isAdminHost}
+                          product={product}
+                          currentUser={currentUser}
+                          onRemove={removeFromWishlist}
+                          showError={showError}
+                        />
                         <DeleteButton
                           isAdminHost={isAdminHost}
                           productId={product.id}
