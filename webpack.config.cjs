@@ -17,7 +17,6 @@ const deps = pkg.dependencies ?? {};
 function getInstalledVersion(pkgName) {
   // Reason: some packages (notably MUI) resolve to a subpath that doesn't include a version in its own package.json.
   try {
-    // eslint-disable-next-line import/no-dynamic-require, global-require
     return require(`${pkgName}/package.json`).version;
   } catch {
     return deps[pkgName];
