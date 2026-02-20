@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Box,
   Button,
@@ -59,7 +59,6 @@ function maybeInjectLogicalError(event, routeRemoteHint) {
     window.zipy.logException(err);
   }
 
-  // eslint-disable-next-line no-console
   console.error(`[${routeRemoteHint}][LogicalError]`, { ...chosen, buttonText });
   return true;
 }
@@ -82,6 +81,56 @@ function UserCard({ user }) {
   );
 }
 
+function DeleteButton({ isAdminHost, productId, currentUser, onDelete, showError }) {
+  let canDelete = false;
+  try {
+    canDelete = currentUser.permissions.includes('WISHLIST_DELETE');
+  } catch {
+    canDelete = false;
+  }
+
+  useEffect(() => {
+    if (isAdminHost) return;
+    if (canDelete) return;
+    showError('Permission denied');
+  });
+
+  if (!isAdminHost) return null;
+  if (!canDelete) return null;
+
+  return (
+    <Button
+      variant="outlined"
+      startIcon={<DeleteIcon />}
+      color="error"
+      onClick={() => onDelete(productId)}
+      sx={{ textTransform: 'none', fontWeight: 700, borderRadius: 2 }}
+    >
+      Delete
+    </Button>
+  );
+}
+
+function RemoveButton({ product, onRemove }) {
+  try {
+  const canRemove = product.addedBy.permissions.includes('WISHLIST_REMOVE');
+  if (!canRemove) return null;
+  return (
+    <Button
+      variant="outlined"
+      startIcon={<DeleteIcon />}
+      color="error"
+      onClick={() => onRemove(product.id)}
+      sx={{ textTransform: 'none', fontWeight: 700, borderRadius: 2 }}
+    >
+      Remove
+    </Button>
+  );
+  } catch(e) {
+    window.zipy.logException(e);
+  }
+}
+
 /**
  * Wishlist page remote.
  *
@@ -101,23 +150,6 @@ export default function Wishlist({
   const navigate = useNavigate();
 
   const isAdminHost = typeof window !== 'undefined' && window.__SHOPHUB_APP__ === 'admin';
-
-  let canEdit = false;
-  try {
-    canEdit = currentUser.permissions.includes('EDIT');
-  } catch (e) {
-    const zipy = typeof window !== 'undefined' ? window.zipy : null;
-    if (zipy) {
-      zipy.logMessage('[wishlist] permission check failed', {
-        currentUserType: typeof currentUser,
-        hasPermissions: Boolean(currentUser && 'permissions' in currentUser),
-      });
-      zipy.logException(e);
-    }
-    // eslint-disable-next-line no-console
-    console.error('[wishlist] permission check failed', { currentUser });
-    throw e;
-  }
 
   const FAIL_KEY = 'shophub:wishlist:simulateFailure:v1';
   const [simulateFailure, setSimulateFailure] = useState(() => {
@@ -142,8 +174,6 @@ export default function Wishlist({
       removeFromWishlist(product.id);
       showSuccess('Moved to cart');
     } catch (e) {
-      // Reason: shell snackbar handles UX; fallback to console in standalone.
-      // eslint-disable-next-line no-console
       console.error('Move to cart failed:', e);
       showError('Failed to move item to cart');
     }
@@ -295,7 +325,7 @@ export default function Wishlist({
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                       {product.category}
                     </Typography>
-                    {isAdminHost && canEdit && product?.addedBy ? (
+                    {isAdminHost && product?.addedBy ? (
                       <Box sx={{ mb: 2 }}>
                         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontWeight: 800 }}>
                           Added by
@@ -309,15 +339,14 @@ export default function Wishlist({
                         ${product.price}
                       </Typography>
                       <Box sx={{ display: 'flex', gap: 1 }}>
-                        <Button
-                          variant="outlined"
-                          startIcon={<DeleteIcon />}
-                          color="error"
-                          onClick={() => removeFromWishlist(product.id)}
-                          sx={{ textTransform: 'none', fontWeight: 700, borderRadius: 2 }}
-                        >
-                          Remove
-                        </Button>
+                        <RemoveButton product={product} onRemove={removeFromWishlist} />
+                        <DeleteButton
+                          isAdminHost={isAdminHost}
+                          productId={product.id}
+                          currentUser={currentUser}
+                          onDelete={removeFromWishlist}
+                          showError={showError}
+                        />
                         <Button
                           variant="contained"
                           startIcon={<CartIcon />}
