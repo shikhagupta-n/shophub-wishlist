@@ -59,7 +59,6 @@ function maybeInjectLogicalError(event, routeRemoteHint) {
     window.zipy.logException(err);
   }
 
-  // eslint-disable-next-line no-console
   console.error(`[${routeRemoteHint}][LogicalError]`, { ...chosen, buttonText });
   return true;
 }
@@ -138,7 +137,6 @@ export default function Wishlist({
           hasPermissionsKey: Boolean('permissions' in currentUser),
         });
       }
-      // eslint-disable-next-line no-console
       console.warn('[wishlist] unexpected permissions shape (admin host)', { currentUser });
     }
   }, [currentUser, isAdminHost, permissions]);
@@ -159,7 +157,6 @@ export default function Wishlist({
       showSuccess('Moved to cart');
     } catch (e) {
       // Reason: shell snackbar handles UX; fallback to console in standalone.
-      // eslint-disable-next-line no-console
       console.error('Move to cart failed:', e);
       showError('Failed to move item to cart');
     }
