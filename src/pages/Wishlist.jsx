@@ -27,6 +27,40 @@ const LOGICAL_ERRORS = [
 ];
 let logicalErrorCounter = 0;
 
+const permissionGuardDedup = new Set();
+function getUserPermissions(user) {
+  // Reason: the shell may pass `currentUser` / `addedBy` without permissions hydrated; the remote must never crash during render.
+  return Array.isArray(user?.permissions) ? user.permissions : [];
+}
+
+function hasPermission(user, permission) {
+  return getUserPermissions(user).includes(permission);
+}
+
+function maybeReportInvalidPermissionsShape(context, { user, productId }) {
+  // Reason: production error reports showed `permissions` being read on `undefined`; log shape mismatches without impacting UX.
+  if (typeof window === 'undefined') return;
+  if (Array.isArray(user?.permissions)) return;
+
+  const dedupKey = `${context}:${productId ?? 'n/a'}:${user?.id ?? user?.email ?? 'unknown-user'}`;
+  if (permissionGuardDedup.has(dedupKey)) return;
+  permissionGuardDedup.add(dedupKey);
+
+  const payload = {
+    context,
+    productId,
+    userId: user?.id,
+    userEmail: user?.email,
+    permissionsType: user?.permissions === undefined ? 'undefined' : typeof user?.permissions,
+  };
+
+  window.zipy?.logMessage?.('Wishlist permissions missing/invalid', payload);
+  const isLocalhost = window.location?.hostname === 'localhost' || window.location?.hostname === '127.0.0.1';
+  if (!window.zipy && isLocalhost) {
+    console.warn('[wishlist] permissions missing/invalid', payload);
+  }
+}
+
 function isFailModeOn() {
   try {
     return JSON.parse(localStorage.getItem('ecommerce_fail_mode') || 'false') === true;
@@ -82,18 +116,14 @@ function UserCard({ user }) {
 }
 
 function DeleteButton({ isAdminHost, productId, currentUser, onDelete, showError }) {
-  let canDelete = false;
-  try {
-    canDelete = currentUser.permissions.includes('WISHLIST_DELETE');
-  } catch {
-    canDelete = false;
-  }
+  const canDelete = hasPermission(currentUser, 'WISHLIST_DELETE');
+  maybeReportInvalidPermissionsShape('delete-button', { user: currentUser, productId });
 
   useEffect(() => {
     if (isAdminHost) return;
     if (canDelete) return;
     showError('Permission denied');
-  });
+  }, [isAdminHost, canDelete, showError]);
 
   if (!isAdminHost) return null;
   if (!canDelete) return null;
@@ -111,10 +141,16 @@ function DeleteButton({ isAdminHost, productId, currentUser, onDelete, showError
   );
 }
 
-function RemoveButton({ product, onRemove }) {
-  try {
-  const canRemove = product.addedBy.permissions.includes('WISHLIST_REMOVE');
+function RemoveButton({ product, currentUser, onRemove }) {
+  if (!product?.id) return null;
+
+  // Reason: `addedBy` is not guaranteed to exist on wishlist items in every host; prefer the authenticated user when available.
+  const permissionUser = currentUser ?? product?.addedBy;
+  maybeReportInvalidPermissionsShape('remove-button', { user: permissionUser, productId: product.id });
+
+  const canRemove = hasPermission(permissionUser, 'WISHLIST_REMOVE');
   if (!canRemove) return null;
+
   return (
     <Button
       variant="outlined"
@@ -126,9 +162,6 @@ function RemoveButton({ product, onRemove }) {
       Remove
     </Button>
   );
-  } catch(e) {
-    window.zipy.logException(e);
-  }
 }
 
 /**
@@ -339,7 +372,7 @@ export default function Wishlist({
                         ${product.price}
                       </Typography>
                       <Box sx={{ display: 'flex', gap: 1 }}>
-                        <RemoveButton product={product} onRemove={removeFromWishlist} />
+                        <RemoveButton product={product} currentUser={currentUser} onRemove={removeFromWishlist} />
                         <DeleteButton
                           isAdminHost={isAdminHost}
                           productId={product.id}
