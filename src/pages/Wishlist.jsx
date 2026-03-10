@@ -26,6 +26,7 @@ const LOGICAL_ERRORS = [
   { code: 'LOGIC_005', message: 'Routing logic error: navigation target resolved to an unexpected route.' },
 ];
 let logicalErrorCounter = 0;
+let hasLoggedRemovePermissionMissing = false;
 
 function isFailModeOn() {
   try {
@@ -61,6 +62,13 @@ function maybeInjectLogicalError(event, routeRemoteHint) {
 
   console.error(`[${routeRemoteHint}][LogicalError]`, { ...chosen, buttonText });
   return true;
+}
+
+function hasPermission(user, permission) {
+  // Reason: shell/remotes can temporarily render with `currentUser` unset while auth/profile loads.
+  // This helper makes permission checks null-safe and consistent across the page.
+  const permissions = user?.permissions;
+  return Array.isArray(permissions) && permissions.includes(permission);
 }
 
 function UserCard({ user }) {
@@ -111,24 +119,37 @@ function DeleteButton({ isAdminHost, productId, currentUser, onDelete, showError
   );
 }
 
-function RemoveButton({ product, onRemove }) {
-  try {
-  const canRemove = product.addedBy.permissions.includes('WISHLIST_REMOVE');
-  if (!canRemove) return null;
+function RemoveButton({ isAdminHost, product, currentUser, onRemove }) {
+  // In the user-facing shell, wishlist items do not guarantee an `addedBy` object.
+  // Remove is a normal end-user action; only the admin host should gate it by permission.
+  const canRemove = !isAdminHost || hasPermission(currentUser, 'WISHLIST_REMOVE');
+
+  if (!canRemove) {
+    if (!hasLoggedRemovePermissionMissing && typeof window !== 'undefined' && window.zipy) {
+      hasLoggedRemovePermissionMissing = true;
+      window.zipy.logMessage('Wishlist: remove hidden (missing permission)', {
+        productId: product?.id,
+        isAdminHost,
+        hasCurrentUser: Boolean(currentUser),
+      });
+    }
+    return null;
+  }
+
   return (
     <Button
       variant="outlined"
       startIcon={<DeleteIcon />}
       color="error"
-      onClick={() => onRemove(product.id)}
+      onClick={() => {
+        if (!product?.id) return;
+        onRemove(product.id);
+      }}
       sx={{ textTransform: 'none', fontWeight: 700, borderRadius: 2 }}
     >
       Remove
     </Button>
   );
-  } catch(e) {
-    window.zipy.logException(e);
-  }
 }
 
 /**
@@ -339,7 +360,12 @@ export default function Wishlist({
                         ${product.price}
                       </Typography>
                       <Box sx={{ display: 'flex', gap: 1 }}>
-                        <RemoveButton product={product} onRemove={removeFromWishlist} />
+                        <RemoveButton
+                          isAdminHost={isAdminHost}
+                          product={product}
+                          currentUser={currentUser}
+                          onRemove={removeFromWishlist}
+                        />
                         <DeleteButton
                           isAdminHost={isAdminHost}
                           productId={product.id}
