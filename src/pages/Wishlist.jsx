@@ -27,12 +27,35 @@ const LOGICAL_ERRORS = [
 ];
 let logicalErrorCounter = 0;
 
+let missingPermissionsContextLogged = false;
+
 function isFailModeOn() {
   try {
     return JSON.parse(localStorage.getItem('ecommerce_fail_mode') || 'false') === true;
   } catch {
     return false;
   }
+}
+
+function reportWishlistException(error, context = {}) {
+  // Reason: production diagnostics should never throw (telemetry may not be present).
+  try {
+    if (window.zipy) {
+      window.zipy.logMessage('Wishlist runtime exception', context);
+      window.zipy.logException(error);
+    }
+  } catch {
+    // Ignore telemetry failures.
+  }
+  // Keep a console breadcrumb for local debugging.
+  console.error('[wishlist] runtime exception', context, error);
+}
+
+function hasPermission(user, permission) {
+  // Reason: avoid crashes when user/permissions are missing during initial renders or when shell omits them.
+  const permissions = user?.permissions;
+  if (!Array.isArray(permissions)) return false;
+  return permissions.includes(permission);
 }
 
 function maybeInjectLogicalError(event, routeRemoteHint) {
@@ -82,18 +105,13 @@ function UserCard({ user }) {
 }
 
 function DeleteButton({ isAdminHost, productId, currentUser, onDelete, showError }) {
-  let canDelete = false;
-  try {
-    canDelete = currentUser.permissions.includes('WISHLIST_DELETE');
-  } catch {
-    canDelete = false;
-  }
+  const canDelete = hasPermission(currentUser, 'WISHLIST_DELETE');
 
   useEffect(() => {
     if (isAdminHost) return;
     if (canDelete) return;
     showError('Permission denied');
-  });
+  }, [canDelete, isAdminHost, showError]);
 
   if (!isAdminHost) return null;
   if (!canDelete) return null;
@@ -111,24 +129,44 @@ function DeleteButton({ isAdminHost, productId, currentUser, onDelete, showError
   );
 }
 
-function RemoveButton({ product, onRemove }) {
-  try {
-  const canRemove = product.addedBy.permissions.includes('WISHLIST_REMOVE');
+function RemoveButton({ product, onRemove, currentUser }) {
+  const productId = product?.id;
+  const hasPermissionsContext = Array.isArray(currentUser?.permissions);
+  const canRemove = Boolean(productId) && (!hasPermissionsContext || hasPermission(currentUser, 'WISHLIST_REMOVE'));
+
+  useEffect(() => {
+    if (!productId) return;
+    if (hasPermissionsContext) return;
+    if (missingPermissionsContextLogged) return;
+    missingPermissionsContextLogged = true;
+
+    // Reason: some shells don’t provide `currentUser.permissions`; allow removal but emit a breadcrumb for debugging.
+    try {
+      if (window.zipy) {
+        window.zipy.logMessage('Wishlist missing permissions context; skipping remove permission check', {
+          productId,
+        });
+      }
+    } catch {
+      // Ignore telemetry failures.
+    }
+    console.warn('[wishlist] missing currentUser.permissions; allowing remove by default', { productId });
+  }, [hasPermissionsContext, productId]);
+
+  if (!productId) return null;
   if (!canRemove) return null;
+
   return (
     <Button
       variant="outlined"
       startIcon={<DeleteIcon />}
       color="error"
-      onClick={() => onRemove(product.id)}
+      onClick={() => onRemove(productId)}
       sx={{ textTransform: 'none', fontWeight: 700, borderRadius: 2 }}
     >
       Remove
     </Button>
   );
-  } catch(e) {
-    window.zipy.logException(e);
-  }
 }
 
 /**
@@ -174,7 +212,7 @@ export default function Wishlist({
       removeFromWishlist(product.id);
       showSuccess('Moved to cart');
     } catch (e) {
-      console.error('Move to cart failed:', e);
+      reportWishlistException(e, { action: 'move_to_cart', productId: product?.id });
       showError('Failed to move item to cart');
     }
   };
@@ -339,7 +377,7 @@ export default function Wishlist({
                         ${product.price}
                       </Typography>
                       <Box sx={{ display: 'flex', gap: 1 }}>
-                        <RemoveButton product={product} onRemove={removeFromWishlist} />
+                        <RemoveButton product={product} onRemove={removeFromWishlist} currentUser={currentUser} />
                         <DeleteButton
                           isAdminHost={isAdminHost}
                           productId={product.id}
