@@ -90,10 +90,11 @@ function DeleteButton({ isAdminHost, productId, currentUser, onDelete, showError
   }
 
   useEffect(() => {
-    if (isAdminHost) return;
+    // Avoid spamming errors in the non-admin shell where the button is hidden anyway.
+    if (!isAdminHost) return;
     if (canDelete) return;
     showError('Permission denied');
-  });
+  }, [isAdminHost, canDelete, showError]);
 
   if (!isAdminHost) return null;
   if (!canDelete) return null;
@@ -111,23 +112,29 @@ function DeleteButton({ isAdminHost, productId, currentUser, onDelete, showError
   );
 }
 
-function RemoveButton({ product, onRemove }) {
+function RemoveButton({ product, onRemove, currentUser, isAdminHost }) {
+  // `product.addedBy` is not guaranteed to exist for normal wishlist items (it's mainly an admin-shell diagnostic).
+  // Using `currentUser` avoids crashing when the backend/host omits `addedBy`.
   try {
-  const canRemove = product.addedBy.permissions.includes('WISHLIST_REMOVE');
-  if (!canRemove) return null;
-  return (
-    <Button
-      variant="outlined"
-      startIcon={<DeleteIcon />}
-      color="error"
-      onClick={() => onRemove(product.id)}
-      sx={{ textTransform: 'none', fontWeight: 700, borderRadius: 2 }}
-    >
-      Remove
-    </Button>
-  );
-  } catch(e) {
-    window.zipy.logException(e);
+    const permissions = Array.isArray(currentUser?.permissions) ? currentUser.permissions : [];
+    const canRemove = !isAdminHost || permissions.includes('WISHLIST_REMOVE');
+    if (!canRemove) return null;
+    if (!product?.id) return null;
+
+    return (
+      <Button
+        variant="outlined"
+        startIcon={<DeleteIcon />}
+        color="error"
+        onClick={() => onRemove?.(product.id)}
+        sx={{ textTransform: 'none', fontWeight: 700, borderRadius: 2 }}
+      >
+        Remove
+      </Button>
+    );
+  } catch (e) {
+    window.zipy?.logException?.(e);
+    return null;
   }
 }
 
@@ -339,7 +346,12 @@ export default function Wishlist({
                         ${product.price}
                       </Typography>
                       <Box sx={{ display: 'flex', gap: 1 }}>
-                        <RemoveButton product={product} onRemove={removeFromWishlist} />
+                        <RemoveButton
+                          product={product}
+                          onRemove={removeFromWishlist}
+                          currentUser={currentUser}
+                          isAdminHost={isAdminHost}
+                        />
                         <DeleteButton
                           isAdminHost={isAdminHost}
                           productId={product.id}
